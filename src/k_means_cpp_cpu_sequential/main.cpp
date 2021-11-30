@@ -57,7 +57,7 @@ int main(int argc, char **argv) {
         auto end = benchmark_dir.value.copy(buffer, benchmark_dir.value.length());
         end += info.filename.copy(buffer + end, info.filename.length());
         fast_io::obuf_file benchmark_results_file(std::string_view(buffer, end));
-        print(benchmark_results_file, timer.get_log());
+        println(timer.get_log());
         println(benchmark_results_file, timer.get_log());
         println(benchmark_results_file, "num_of_iterations: ", kmeans_default_params.num_of_iterations);
         println(benchmark_results_file, "num_of_clusters: ", kmeans_default_params.num_of_clusters);

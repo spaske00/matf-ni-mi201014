@@ -14,20 +14,23 @@
 #include <condition_variable>
 #include <vector>
 #include "ni_common.h"
+
 namespace ni {
     namespace cpu_parallel {
         using namespace ni::types;
+
         struct KMeansParams {
             u32 num_of_clusters = 7;
             u32 num_of_iterations = 300;
             u32 num_of_threads = std::thread::hardware_concurrency() - 1;
+
             static KMeansParams get_default() {
                 KMeansParams params;
                 return params;
             }
         };
 
-        void debug_dump(const KMeansParams& params) {
+        void debug_dump(const KMeansParams &params) {
             println(fast_io::dbg(), "num_of_clusters: ", params.num_of_clusters);
             println(fast_io::dbg(), "num_of_iterations: ", params.num_of_iterations);
             println(fast_io::dbg(), "num_of_threads: ", params.num_of_threads);
@@ -37,14 +40,21 @@ namespace ni {
         class KMeans {
         public:
             void setParams(const KMeansParams &params) { m_params = params; }
+
             KMeans(KMeansParams params = KMeansParams::get_default())
                     : m_params(params) {}
+
             void fit(const Points<T> &input_points);
+
             bool fitted() const { return m_fitted; }
+
             const Points<T> &get_output_centroid_coors() const { return m_output_centroid_coords; }
+
             const std::vector<u64> &
             get_output_closet_centroid_indices() const { return m_output_closets_centroid_indices; }
+
             void predict(const Points<T> &input_points, std::vector<u64> &output_cluster_indices);
+
             KMeansParams m_params;
         private:
             Points<T> m_output_centroid_coords;
@@ -58,16 +68,25 @@ namespace ni {
             std::atomic<u64> m_current_iteration;
             std::atomic<u32> m_num_of_threads_that_finished_cluster_update_for_this_iteration;
 
-            std::mutex m_lk_worker_threads_start;
-            std::condition_variable m_cv_worker_threads_start;
-
-            std::mutex m_lk_worker_threads_done;
-            std::condition_variable m_cv_worker_threads_done;
-
             void update_rows(u64 start, u64 end);
+
             void worker_thread(u64 thread_index);
         };
-
+        struct WorkerThreadChunkParams {
+            u64 chunk_size;
+            u64 start;
+            u64 end;
+            static WorkerThreadChunkParams compute(u64 thread_index, u64 num_of_points, u64 num_of_threads, u64 min_chunk_size) {
+                const u64 chunk_size = std::max(min_chunk_size, num_of_points / (num_of_threads - 1));
+                const u64 start = std::min(thread_index * chunk_size, num_of_points);
+                const u64 end = std::min(start + chunk_size, num_of_points);
+                WorkerThreadChunkParams params;
+                params.chunk_size = chunk_size;
+                params.start = start;
+                params.end = end;
+                return params;
+            }
+        };
         template<typename T>
         void KMeans<T>::fit(const Points<T> &input_points) {
             assert(m_params.num_of_clusters);
@@ -103,26 +122,26 @@ namespace ni {
             m_num_of_threads = std::min(std::thread::hardware_concurrency() - 1, m_params.num_of_threads);
             assert(m_num_of_threads < m_thread_pool.size());
             m_current_iteration.store(m_params.num_of_iterations + 1);
-            for (u64 i = 0; i < m_num_of_threads; ++i) {
-                m_thread_pool[i] = std::thread([this](auto index){worker_thread(index);}, i);
+            for (u64 i = 1; i < m_num_of_threads; ++i) {
+                m_thread_pool[i] = std::thread([this](auto index) { worker_thread(index); }, i);
             }
+
+
+            const auto params = WorkerThreadChunkParams::compute(0, m_input_points->num_of_points(), m_num_of_threads, 16);
+            println(fast_io::dbg(), 0, " start: ", params.start, " end: ", params.end);
             for (u64 iteration = 0; iteration < M; ++iteration) {
                 sum_of_all_points_in_cluster.fill(T{});
                 std::fill(range(num_of_points_in_cluster), 0);
                 // start parallel cluster update
                 // TODO: give this thread clusters to update also
+                m_num_of_threads_that_finished_cluster_update_for_this_iteration.store(0, std::memory_order_relaxed);
                 m_current_iteration.store(iteration, std::memory_order_release);
                 // TODO: this doesn't need to be an atomic store/read because of cv mutex lk
-                m_num_of_threads_that_finished_cluster_update_for_this_iteration.store(0, std::memory_order_release);
-                m_cv_worker_threads_start.notify_all();
-                { // NOTE: stmt block because of std::unique_lock lk
-                    std::unique_lock lk(m_lk_worker_threads_done);
-                    m_cv_worker_threads_done.wait(lk, [this] {
-                        return m_num_of_threads_that_finished_cluster_update_for_this_iteration.load(
-                                std::memory_order_acquire) == m_num_of_threads;
-                    });
+                update_rows(params.start, params.end);
+                while (m_num_of_threads_that_finished_cluster_update_for_this_iteration.load(std::memory_order_acquire)
+                       != (m_num_of_threads - 1)) {
+                    // wait for all the threads to finish work
                 }
-
                 // update centroids
                 for (u64 i = 0; i < N; ++i) {
                     const auto cluster_index = m_output_closets_centroid_indices[i];
@@ -144,7 +163,7 @@ namespace ni {
         template<typename T>
         void KMeans<T>::update_rows(u64 start, u64 end) {
             const auto K = m_params.num_of_clusters;
-            auto& input_points = *m_input_points;
+            auto &input_points = *m_input_points;
             for (u64 i = start; i < end; ++i) {
                 const vec_ref<T> ith_point = input_points[i];
                 T distance_from_closest_centroid = std::numeric_limits<T>::max();
@@ -161,23 +180,19 @@ namespace ni {
             }
         }
 
+
+
         template<typename T>
         void KMeans<T>::worker_thread(u64 thread_index) {
-            const u64 N = m_input_points->num_of_points();
-            const u64 num_of_threads = m_num_of_threads;
-            const u64 minimum_chunk_size = 16;
-            const u64 chunk_size = std::max(minimum_chunk_size, N / num_of_threads);
-            const u64 start = std::min(thread_index * chunk_size, m_input_points->num_of_points());
-            const u64 end = std::min(start + chunk_size, m_input_points->num_of_points());
+            const auto params = WorkerThreadChunkParams::compute(thread_index, m_input_points->num_of_points(), m_num_of_threads, 16);
+            println(fast_io::dbg(), thread_index, " start: ", params.start, " end: ", params.end);
             for (u64 iteration = 0; iteration < m_params.num_of_iterations; ++iteration) {
-                std::unique_lock lk(m_lk_worker_threads_start);
-                m_cv_worker_threads_start.wait(lk, [this, iteration] {
-                    return m_current_iteration.load(std::memory_order_acquire) == iteration;
-                });
-                update_rows(start, end);
+                while (m_current_iteration.load(std::memory_order_acquire) != iteration) {
+                    // wait for the next iteration
+                }
+                update_rows(params.start, params.end);
                 m_num_of_threads_that_finished_cluster_update_for_this_iteration.fetch_add(1,
                                                                                            std::memory_order_release);
-                m_cv_worker_threads_done.notify_one();
             }
         }
 
