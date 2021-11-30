@@ -1,0 +1,6 @@
+bin/
+data/
+cmake-build-release/
+cmake-build-debug/
+k_means_python_sklearn/venv
+.idea/
