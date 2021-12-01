@@ -4,49 +4,42 @@ import argparse
 import os
 import re
 import logging
-
-logger = logging.Logger()
-
-
-def extract_number_of_clusters_from_file_name(filename):
-    matcher = re.compile("ncenters_(\d+)")
-    result = matcher.search(filename)
-    return result.group(1)
-
+import time
 
 if __name__ == "__main__":
-
     arg_parser = argparse.ArgumentParser()
-    arg_parser.add_argument("--n_init", type=int, default='10', help='''
-        Number of time the k-means algorithm will be run with different centroid seeds. 
-        The final results will be the best output of n_init consecutive runs in terms of inertia.''')
-    arg_parser.add_argument("--max_iter", type=int, default=300, help='''
-        Maximum number of iterations of the k-means algorithm for a single run.
-    ''')
-    arg_parser.add_argument("--tol", type=float, default=1e-4, help='''
-        Relative tolerance with regards to Frobenius norm of the difference in the 
-        cluster centers of two consecutive iterations to declare convergence.
-    ''')
-    arg_parser.add_argument("--data_files", type=str, nargs='*', default='')
-    arg_parser.add_argument("--data_dir", type=str, default='')
+    arg_parser.add_argument("--input_points_path", type=str, required=True)
+    arg_parser.add_argument("--num_of_iterations", type=int, default=300)
+    arg_parser.add_argument("--num_of_clusters", type=int, default=8)
+    arg_parser.add_argument("--num_of_threads", type=int, default=15)
+    arg_parser.add_argument("--output_dir", type=str, required=True)
+    arg_parser.add_argument("--benchmark_output_csv", type=str, required=True)
     args = arg_parser.parse_args()
 
-    n_init = args.n_init
-    max_iter = args.max_iter
-    tol = args.tol
-    data_files = args.data_files
-    data_dir_path = args.data_dir
+    num_of_iterations = args.num_of_iterations
+    num_of_clusters = args.num_of_clusters
+    num_of_threads = args.num_of_threads
+    output_dir = args.output_dir
+    benchmark_output_csv = args.benchmark_output_csv
+    input_points_path = args.input_points_path
 
-    logger.setLevel()
+    start = time.time()
+    X = np.loadtxt(input_points_path, dtype=np.single, delimiter=' ')
+    load_csv_ms = (time.time() - start) * 1000.0
 
-    if len(data_files) == 0:
-        data_files = os.listdir(data_dir_path)
+    kmeans = KMeans(init='random', n_clusters=num_of_clusters, n_init=1, max_iter=num_of_iterations, tol=0.0,
+                    algorithm='full')
 
-    print(data_dir_path)
-    print(data_files)
+    start = time.time()
+    kmeans.fit(X)
+    kmeans_fit_ms = (time.time() - start) * 1000.0
 
-    for cluster_file_path_csv in data_files:
-        path = os.path.join(data_dir_path, cluster_file_path_csv)
-        X = np.loadtxt(path, dtype=np.single, delimiter=',')
-        ncenters = extract_number_of_clusters_from_file_name(path)
-        kmeans = KMeans(n_clusters=ncenters, n_init=n_init, max_iter=max_iter, tol=tol)
+    input_points_filename = os.path.basename(input_points_path)
+    start = time.time()
+    np.savetxt(os.path.join(output_dir, input_points_filename), kmeans.cluster_centers_)
+    save_to_csv_ms = (time.time() - start) * 1000.0
+
+    with open(benchmark_output_csv, 'a') as f:
+        f.write(
+            f'{input_points_filename},python_sklearn, {X.shape[0]}, {X.shape[1]}, {num_of_iterations},{num_of_clusters},{kmeans._n_threads},{load_csv_ms},{kmeans_fit_ms},{save_to_csv_ms}\n')
+        f.close()

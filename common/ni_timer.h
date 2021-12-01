@@ -23,40 +23,48 @@ namespace ni::logging {
         }
     }
 
+    enum TimedEvents {
+        TimedEvent_none = 0,
+        TimedEvent_load_from_csv,
+        TimedEvent_kmeans_fit,
+        TimedEvent_save_to_csv,
+        TimedEvent_Count
+    };
     class Timer {
     public:
         using duration_t = std::chrono::milliseconds;
         using clock_t = std::chrono::high_resolution_clock;
         using time_point_t = decltype(clock_t::now());
 
-        explicit Timer(std::string_view name = "")
-                : m_start(clock_t::now()) {
-            m_log.reserve(4096);
+        explicit Timer(TimedEvents event_to_time = TimedEvent_none)
+                : m_start(clock_t::now()), m_currently_timing(event_to_time) {
         }
 
         void stop_and_log() {
             m_end = clock_t::now();
-            m_log.append(m_timed_block_name);
-            m_log.push_back(':');
-            m_log.append(std::to_string(std::chrono::duration_cast<duration_t>(m_end - m_start).count()));
-            m_log.push_back('\n');
+            m_timed_events[static_cast<int>(m_currently_timing)] = std::chrono::duration_cast<duration_t>(m_end - m_start).count();
         }
 
-        void start(std::string_view timed_block_name) {
-            m_timed_block_name = timed_block_name;
+        void start(TimedEvents event_to_time) {
+            assert(static_cast<int>(event_to_time) < static_cast<int>(TimedEvent_Count));
+            m_currently_timing = event_to_time;
             m_start = clock_t::now();
         }
 
-        auto elapsed() const {
+        long elapsed() const {
             return std::chrono::duration_cast<duration_t>(clock_t::now() - m_start).count();
         }
 
-        const std::string& get_log() const { return m_log; }
+        long elapsed(TimedEvents event) const {
+            assert(static_cast<int>(event) < static_cast<int>(TimedEvent_Count));
+            return m_timed_events[static_cast<int>(event)];
+        }
+
     private:
-        std::string m_log;
         time_point_t m_start;
         time_point_t m_end;
-        std::string_view m_timed_block_name;
+        std::array<long, TimedEvent_Count> m_timed_events;
+        TimedEvents m_currently_timing;
     };
 
 }

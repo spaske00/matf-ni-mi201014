@@ -60,7 +60,33 @@ namespace ni {
             return N;
         }
 
-
+        template<typename T, u64 N>
+        class StaticSizeArray {
+            static_assert(std::is_trivial_v<T>);
+        public:
+            StaticSizeArray() = default;
+            StaticSizeArray(const T& value) : m_data(value) {}
+            void push_back(const T& value) {
+                assert(m_length < m_capacity);
+                m_data[m_length++] = value;
+            }
+            void clear() { m_length = 0; }
+            T& operator[](u64 i) { assert(i < m_length); return m_data[i]; }
+            const T& operator[](u64 i) const { assert(i < m_length); return m_data[i]; }
+            u64 length() const { return m_length; }
+            u64 capacity() const {return m_capacity; }
+            auto begin() const { return &m_data[0]; }
+            auto end() const { return &m_data[0] + m_length; }
+            auto begin() { return &m_data[0]; }
+            auto end() { return &m_data[0] + m_length; }
+            bool contains(const T& value) const {
+                return std::find(begin(), end(), value) != end();
+            }
+        private:
+            u64 m_length{0};
+            u64 m_capacity{N};
+            std::array<T, N> m_data;
+        };
     }
 
 }

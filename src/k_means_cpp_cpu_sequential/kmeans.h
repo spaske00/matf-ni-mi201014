@@ -74,14 +74,17 @@ namespace ni {
             m_output_closets_centroid_indices.resize(N);
             m_output_centroid_coords = Points<T>(m_params.num_of_clusters, input_points.dim_of_points());
 
+
             {
-                std::vector<u64> indices(input_points.num_of_points());
-                std::iota(range(indices), u64{});
+                std::vector<u64> indices;
+                indices.reserve(K);
                 UniformDistributionGenerator<u64> random_indices(0, input_points.num_of_points() - 1);
-                for (u64 i = 0; i < input_points.num_of_points() - 1; ++i) {
-                    random_indices.set_range(i, input_points.num_of_points() - 1);
-                    auto j = random_indices.next();
-                    std::swap(indices[i], indices[j]);
+                for (u64 k = 0; k < K; ++k) {
+                    u64 random_index;
+                    do {
+                        random_index = random_indices.next();
+                    } while (std::find(range(indices), random_index) != indices.end());
+                    indices.push_back(random_index);
                 }
                 for (u64 k = 0; k < K; ++k) {
                     m_output_centroid_coords[k].copy_assign(input_points[indices[k]]);

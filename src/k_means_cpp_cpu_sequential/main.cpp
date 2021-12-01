@@ -7,7 +7,7 @@ void print_usage() {
                                 [--num_of_iterations 32]
                                 [--num_of_clusters 7]
                                 [--output_dir dir/to/output/results]
-                                [--benchmark_dir dir/to/output/benchmark]
+                                [--benchmark_output_csv dir/to/output/benchmark.csv]
     )s");
 }
 
@@ -35,34 +35,34 @@ int main(int argc, char **argv) {
     ni::CSVInfo info = ni::extract_csv_info_from_filename(input_points_path.value);
 
     ni::logging::Timer timer;
-    timer.start("load_from_csv");
+    timer.start(ni::logging::TimedEvent_load_from_csv);
     auto points = ni::Points<float>::load_from_csv(info);
     timer.stop_and_log();
     auto kmeans = ni::cpu_sequential::KMeans<float>(kmeans_default_params);
-    timer.start("kmeans_fit");
+    timer.start(ni::logging::TimedEvent_kmeans_fit);
     kmeans.fit(points);
     timer.stop_and_log();
 
     auto output_dir = arg_parser.argument<std::string_view>("--output_dir");
     if (output_dir.has_value) {
         const auto& centroids = kmeans.get_output_closet_centroid_indices();
-        timer.start("save_to_csv");
+        timer.start(ni::logging::TimedEvent_save_to_csv);
         ni::save_to_csv<ni::VectorCsvFormatSave::AsCol>(output_dir.value, info.filename, centroids);
         timer.stop_and_log();
     }
 
-    auto benchmark_dir = arg_parser.argument<std::string_view>("--benchmark_dir");
-    if (benchmark_dir.has_value) {
-        char buffer[1024];
-        auto end = benchmark_dir.value.copy(buffer, benchmark_dir.value.length());
-        end += info.filename.copy(buffer + end, info.filename.length());
-        fast_io::obuf_file benchmark_results_file(std::string_view(buffer, end));
-        println(timer.get_log());
-        println(benchmark_results_file, timer.get_log());
-        println(benchmark_results_file, "num_of_iterations: ", kmeans_default_params.num_of_iterations);
-        println(benchmark_results_file, "num_of_clusters: ", kmeans_default_params.num_of_clusters);
-        println(benchmark_results_file, "num_of_threads: ", kmeans_default_params.num_of_threads);
-    }
+    auto benchmark_output_csv = arg_parser.argument<std::string_view>("--benchmark_output_csv");
+    if (benchmark_output_csv.has_value) {
+        fast_io::obuf_file benchmark_results_file(benchmark_output_csv.value, fast_io::open_mode::app);
+        println(benchmark_results_file,info.filename, ",cpp_sequential,", info.num_of_rows,",", info.num_of_cols, ",",
+              kmeans_default_params.num_of_iterations, ",",
+              kmeans_default_params.num_of_clusters, ",",
+              kmeans_default_params.num_of_threads, ",",
+              timer.elapsed(ni::logging::TimedEvent_load_from_csv), ",",
+              timer.elapsed(ni::logging::TimedEvent_kmeans_fit), ",",
+              timer.elapsed(ni::logging::TimedEvent_save_to_csv));
+
+   }
 
     return 0;
 }

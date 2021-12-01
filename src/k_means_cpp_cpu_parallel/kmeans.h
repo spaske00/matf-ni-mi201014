@@ -16,7 +16,7 @@
 #include "ni_common.h"
 
 namespace ni {
-    namespace cpu_parallel {
+    namespace cpp_parallel {
         using namespace ni::types;
 
         struct KMeansParams {
@@ -101,13 +101,15 @@ namespace ni {
             m_output_centroid_coords = Points<T>(m_params.num_of_clusters, input_points.dim_of_points());
 
             {
-                std::vector<u64> indices(input_points.num_of_points());
-                std::iota(range(indices), u64{});
+                std::vector<u64> indices;
+                indices.reserve(K);
                 UniformDistributionGenerator<u64> random_indices(0, input_points.num_of_points() - 1);
-                for (u64 i = 0; i < input_points.num_of_points() - 1; ++i) {
-                    random_indices.set_range(i, input_points.num_of_points() - 1);
-                    auto j = random_indices.next();
-                    std::swap(indices[i], indices[j]);
+                for (u64 k = 0; k < K; ++k) {
+                    u64 random_index;
+                    do {
+                        random_index = random_indices.next();
+                    } while (std::find(range(indices), random_index) != indices.end());
+                    indices.push_back(random_index);
                 }
                 for (u64 k = 0; k < K; ++k) {
                     m_output_centroid_coords[k].copy_assign(input_points[indices[k]]);
@@ -128,7 +130,6 @@ namespace ni {
 
 
             const auto params = WorkerThreadChunkParams::compute(0, m_input_points->num_of_points(), m_num_of_threads, 16);
-            println(fast_io::dbg(), 0, " start: ", params.start, " end: ", params.end);
             for (u64 iteration = 0; iteration < M; ++iteration) {
                 sum_of_all_points_in_cluster.fill(T{});
                 std::fill(range(num_of_points_in_cluster), 0);
@@ -155,7 +156,7 @@ namespace ni {
                 }
             }
             m_fitted = true;
-            for (u64 i = 0; i < m_num_of_threads; ++i) {
+            for (u64 i = 1; i < m_num_of_threads; ++i) {
                 m_thread_pool[i].join();
             }
         }
@@ -185,7 +186,6 @@ namespace ni {
         template<typename T>
         void KMeans<T>::worker_thread(u64 thread_index) {
             const auto params = WorkerThreadChunkParams::compute(thread_index, m_input_points->num_of_points(), m_num_of_threads, 16);
-            println(fast_io::dbg(), thread_index, " start: ", params.start, " end: ", params.end);
             for (u64 iteration = 0; iteration < m_params.num_of_iterations; ++iteration) {
                 while (m_current_iteration.load(std::memory_order_acquire) != iteration) {
                     // wait for the next iteration
