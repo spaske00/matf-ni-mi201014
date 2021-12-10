@@ -121,7 +121,7 @@ namespace ni {
             std::vector<u64> num_of_points_in_cluster(m_params.num_of_clusters, 0);
 
             // initialize m_thread_pool with m_num_of_threads
-            m_num_of_threads = std::min(std::thread::hardware_concurrency() - 1, m_params.num_of_threads);
+            m_num_of_threads = m_params.num_of_threads;
             assert(m_num_of_threads < m_thread_pool.size());
             m_current_iteration.store(m_params.num_of_iterations + 1);
             for (u64 i = 1; i < m_num_of_threads; ++i) {
@@ -181,8 +181,6 @@ namespace ni {
             }
         }
 
-
-
         template<typename T>
         void KMeans<T>::worker_thread(u64 thread_index) {
             const auto params = WorkerThreadChunkParams::compute(thread_index, m_input_points->num_of_points(), m_num_of_threads, 16);
@@ -220,17 +218,3 @@ namespace ni {
 }
 
 #endif //UNTITLED3_KMEANS_H
-// stage N of programming development wrt architecture
-// -Individual element thinking
-// -Constructors/Destructors RAII
-// -Thousands/Millions of malloc/free new/delete for individual objects
-// -smart pointers
-// -lifetime constant concern and mental overhead
-
-// stage N + 1 of programming development wrt architecture
-// -Group/System level thinking
-// -ZII
-// -Very few allocations. Grouped together. Heavy use of arenas and scratch space
-// -No need for smart pointers
-// -lifetime is trivial and obvious in 99% of the cases
-// -Heavy use of Caches, Hashing and Result reuse

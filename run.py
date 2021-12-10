@@ -5,13 +5,14 @@ import time
 
 
 class Benchmark:
-    def __init__(self, name, program,
+    def __init__(self, working_dir, name, program,
                  input_points_path,
                  num_of_iterations,
                  num_of_clusters,
                  num_of_threads,
                  output_dir,
                  benchmark_csv_path):
+        self.working_dir = working_dir
         self.name = name
         self.program = program
         self.input_points_path = input_points_path
@@ -22,6 +23,8 @@ class Benchmark:
         self.benchmark_csv_path = benchmark_csv_path
 
     def run(self):
+        previous_working_directory = os.getcwd()
+        os.chdir(self.working_dir)
         print(self.input_points_path)
         subprocess.run([self.program,
                         '--input_points_path', self.input_points_path,
@@ -30,6 +33,7 @@ class Benchmark:
                         '--num_of_threads', str(self.num_of_threads),
                         '--output_dir', self.output_dir,
                         '--benchmark_output_csv', self.benchmark_csv_path])
+        os.chdir(previous_working_directory)
 
 
 if __name__ == '__main__':
@@ -66,14 +70,13 @@ if __name__ == '__main__':
         except FileExistsError as e:
             print(dir_to_make, " already exists")
 
-    for output_dir in os.listdir('data/benchmarks'):
-        benchmark_output_csv = os.path.join('data/benchmarks', benchmark_name + ".csv")
-        mode = 'a' if append_to_previous_benchmark else 'w'
-        with open(benchmark_output_csv, mode) as f:
-            if not append_to_previous_benchmark:
-                f.write("file,type,num_of_samples,num_of_features,num_of_iterations,num_of_clusters,num_of_threads,"
-                        "load_csv_ms,fit_ms,save_to_csv_ms\n")
-            f.close()
+    benchmark_output_csv = os.path.join('data/benchmarks', benchmark_name + ".csv")
+    mode = 'a' if append_to_previous_benchmark else 'w'
+    with open(benchmark_output_csv, mode) as f:
+        if not append_to_previous_benchmark:
+            f.write("file,type,num_of_samples,num_of_features,num_of_iterations,num_of_clusters,num_of_threads,"
+                    "load_csv,fit,save_to_csv\n")
+        f.close()
 
     print("num_of_iterations: ", num_of_iterations)
     print("num_of_clusters: ", num_of_clusters)
@@ -92,12 +95,40 @@ if __name__ == '__main__':
     print('Building binaries...')
     subprocess.run(['make', 'k_means_cpp_cpu_parallel'])
     subprocess.run(['make', 'k_means_cpp_cpu_sequential'])
+    subprocess.run(['make', 'k_means_taskflow_cpu_parallel'])
     os.chdir('..')
 
     data_path = 'data/clusters/'
     data_files = os.listdir(data_path)
     data_files.sort()
     os.chdir('bin/')
+
+    print('Benchmarking cpu sequential...')
+    start = time.time()
+    for csv_file in data_files:
+        path_to_input_points_from_exe_working_dir = str(os.path.join('..', data_path, csv_file))
+        print(path_to_input_points_from_exe_working_dir)
+        subprocess.run(['./k_means_cpp_cpu_sequential',
+                        '--input_points_path', path_to_input_points_from_exe_working_dir,
+                        '--num_of_iterations', str(num_of_iterations),
+                        '--num_of_clusters', str(num_of_clusters),
+                        '--output_dir', '../data/output/cpp_sequential/',
+                        '--benchmark_output_csv', str(os.path.join('../data/benchmarks/', benchmark_name + ".csv"))])
+    print('Total elapsed time for cpu sequential: ', time.time() - start)
+
+    print('Benchmarking taskflow cpu parallel...')
+    start = time.time()
+    for csv_file in data_files:
+        path_to_input_points_from_exe_working_dir = str(os.path.join('..', data_path, csv_file))
+        print(path_to_input_points_from_exe_working_dir)
+        subprocess.run(['./k_means_taskflow_cpu_parallel',
+                        '--input_points_path', path_to_input_points_from_exe_working_dir,
+                        '--num_of_iterations', str(num_of_iterations),
+                        '--num_of_clusters', str(num_of_clusters),
+                        '--num_of_threads', str(num_of_threads),
+                        '--output_dir', '../data/output/taskflow_cpu/',
+                        '--benchmark_output_csv', str(os.path.join('../data/benchmarks/', benchmark_name + ".csv"))])
+    print('Total elapsed time for taskflow: ', time.time() - start)
 
     print('Benchmarking cpu parallel...')
     start = time.time()
@@ -111,23 +142,7 @@ if __name__ == '__main__':
                         '--num_of_threads', str(num_of_threads),
                         '--output_dir', '../data/output/cpp_parallel/',
                         '--benchmark_output_csv', '../data/benchmarks/' + benchmark_name + ".csv"])
-
     print('Total elapsed time for cpu parallel: ', time.time() - start)
-
-    print('Benchmarking cpu sequential...')
-    start = time.time()
-    for csv_file in data_files:
-        if csv_file.startswith('3') or csv_file.startswith('4'):
-            continue
-        path_to_input_points_from_exe_working_dir = str(os.path.join('..', data_path, csv_file))
-        print(path_to_input_points_from_exe_working_dir)
-        subprocess.run(['./k_means_cpp_cpu_sequential',
-                        '--input_points_path', path_to_input_points_from_exe_working_dir,
-                        '--num_of_iterations', str(num_of_iterations),
-                        '--num_of_clusters', str(num_of_clusters),
-                        '--output_dir', '../data/output/cpp_sequential/',
-                        '--benchmark_output_csv', str(os.path.join('../data/benchmarks/', benchmark_name + ".csv"))])
-    print('Total elapsed time for cpu sequential: ', time.time() - start)
 
     print('Benchmarking python sklearn...')
     os.chdir('../k_means_python_sklearn')
@@ -142,5 +157,18 @@ if __name__ == '__main__':
                         '--output_dir', '../data/output/python_sklearn/',
                         '--benchmark_output_csv', str(os.path.join('../data/benchmarks/', benchmark_name + ".csv"))])
     print('Total elapsed time for python sklearn: ', time.time() - start)
-
-    print('Done')
+    #
+    # benchmarks = [
+    #     Benchmark(working_dir='bin/', name='cpp_sequential', program='./k_means_cpp_cpu_sequential',
+    #               num_of_iterations=num_of_iterations, num_of_clusters=num_of_clusters, num_of_threads=num_of_threads,
+    #               output_dir='../data/output/cpp_sequential', )
+    # ]
+    # for benchmark in benchmarks:
+    #     print('Benchmarking ', benchmark.name, ' ...')
+    #     start = time.time()
+    #     for csv_file in data_files:
+    #         benchmark.input_points_path = str(os.path.join('..', data_path, csv_file))
+    #         benchmark.run()
+    #     print('Total elapsed time for ', benchmark.name, ' ', time.time() - start)
+    #
+    # print('Done')

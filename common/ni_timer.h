@@ -32,7 +32,6 @@ namespace ni::logging {
     };
     class Timer {
     public:
-        using duration_t = std::chrono::milliseconds;
         using clock_t = std::chrono::high_resolution_clock;
         using time_point_t = decltype(clock_t::now());
 
@@ -41,8 +40,7 @@ namespace ni::logging {
         }
 
         void stop_and_log() {
-            m_end = clock_t::now();
-            m_timed_events[static_cast<int>(m_currently_timing)] = std::chrono::duration_cast<duration_t>(m_end - m_start).count();
+            m_timed_events[static_cast<int>(m_currently_timing)] = elapsed();
         }
 
         void start(TimedEvents event_to_time) {
@@ -51,11 +49,12 @@ namespace ni::logging {
             m_start = clock_t::now();
         }
 
-        long elapsed() const {
-            return std::chrono::duration_cast<duration_t>(clock_t::now() - m_start).count();
+        double elapsed() const {
+            std::chrono::duration<double> difference = clock_t::now() - m_start;
+            return difference.count();
         }
 
-        long elapsed(TimedEvents event) const {
+        double elapsed(TimedEvents event) const {
             assert(static_cast<int>(event) < static_cast<int>(TimedEvent_Count));
             return m_timed_events[static_cast<int>(event)];
         }
@@ -63,7 +62,7 @@ namespace ni::logging {
     private:
         time_point_t m_start;
         time_point_t m_end;
-        std::array<long, TimedEvent_Count> m_timed_events;
+        std::array<double, TimedEvent_Count> m_timed_events;
         TimedEvents m_currently_timing;
     };
 

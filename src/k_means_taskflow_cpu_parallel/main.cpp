@@ -1,6 +1,5 @@
 #include "kmeans.h"
 #include "ni_common.h"
-
 void print_usage() {
     println("--help");
     println(R"s(
@@ -29,8 +28,7 @@ int main(int argc, char **argv) {
         print_usage();
         std::exit(EXIT_SUCCESS);
     }
-
-    auto kmeans_default_params = ni::cpp_parallel::KMeansParams::get_default();
+    auto kmeans_default_params = ni::taskflow_cpu_parallel::KMeansParams::get_default();
     kmeans_default_params.num_of_iterations = arg_parser.argument<u32>("--num_of_iterations", kmeans_default_params.num_of_iterations);
     kmeans_default_params.num_of_clusters = arg_parser.argument<u32>("--num_of_clusters", kmeans_default_params.num_of_clusters);
     kmeans_default_params.num_of_threads = arg_parser.argument<u32>("--num_of_threads", kmeans_default_params.num_of_threads);
@@ -41,7 +39,7 @@ int main(int argc, char **argv) {
     timer.start(ni::logging::TimedEvent_load_from_csv);
     auto points = ni::Points<float>::load_from_csv(info);
     timer.stop_and_log();
-    auto kmeans = ni::cpp_parallel::KMeans<float>(kmeans_default_params);
+    auto kmeans = ni::taskflow_cpu_parallel::KMeans<float>(kmeans_default_params);
     timer.start(ni::logging::TimedEvent_kmeans_fit);
     kmeans.fit(points);
     timer.stop_and_log();
@@ -53,16 +51,19 @@ int main(int argc, char **argv) {
         ni::save_to_csv<ni::VectorCsvFormatSave::AsCol>(output_dir.value, info.filename, centroids);
         timer.stop_and_log();
     }
+
     auto benchmark_output_csv = arg_parser.argument<std::string_view>("--benchmark_output_csv");
     if (benchmark_output_csv.has_value) {
         fast_io::obuf_file benchmark_results_file(benchmark_output_csv.value, fast_io::open_mode::app);
-        println(benchmark_results_file,info.filename, ",cpp_parallel,", info.num_of_rows,",", info.num_of_cols, ",",
+        println(benchmark_results_file,info.filename, ",taskflow_cpu,", info.num_of_rows,",", info.num_of_cols, ",",
                 kmeans_default_params.num_of_iterations, ",",
                 kmeans_default_params.num_of_clusters, ",",
                 kmeans_default_params.num_of_threads, ",",
                 timer.elapsed(ni::logging::TimedEvent_load_from_csv), ",",
                 timer.elapsed(ni::logging::TimedEvent_kmeans_fit), ",",
                 timer.elapsed(ni::logging::TimedEvent_save_to_csv));
+
     }
+
     return 0;
 }

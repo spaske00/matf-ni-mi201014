@@ -49,6 +49,7 @@ namespace ni {
         fast_io::ibuffer_view buffer(result.filename.begin(), result.filename.end());
         scan(buffer, result.id, "_nsamples_", result.num_of_rows, "_ncenters_", result.num_of_clusters,
              "_nfeatures_", result.num_of_cols);
+
         assert(result.num_of_rows && result.num_of_clusters && result.num_of_cols);
 #if 0
         std::string_view filename(result.filename);

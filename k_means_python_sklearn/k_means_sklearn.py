@@ -25,21 +25,21 @@ if __name__ == "__main__":
 
     start = time.time()
     X = np.loadtxt(input_points_path, dtype=np.single, delimiter=' ')
-    load_csv_ms = (time.time() - start) * 1000.0
+    load_csv = (time.time() - start)
 
     kmeans = KMeans(init='random', n_clusters=num_of_clusters, n_init=1, max_iter=num_of_iterations, tol=0.0,
-                    algorithm='full')
+                    algorithm='full', verbose=True)
 
     start = time.time()
     kmeans.fit(X)
-    kmeans_fit_ms = (time.time() - start) * 1000.0
+    kmeans_fit = (time.time() - start)
 
     input_points_filename = os.path.basename(input_points_path)
     start = time.time()
     np.savetxt(os.path.join(output_dir, input_points_filename), kmeans.cluster_centers_)
-    save_to_csv_ms = (time.time() - start) * 1000.0
+    save_to_csv = (time.time() - start)
 
     with open(benchmark_output_csv, 'a') as f:
         f.write(
-            f'{input_points_filename},python_sklearn, {X.shape[0]}, {X.shape[1]}, {num_of_iterations},{num_of_clusters},{kmeans._n_threads},{load_csv_ms},{kmeans_fit_ms},{save_to_csv_ms}\n')
+            f'{input_points_filename},python_sklearn, {X.shape[0]}, {X.shape[1]}, {num_of_iterations},{num_of_clusters},{kmeans._n_threads},{load_csv},{kmeans_fit},{save_to_csv}\n')
         f.close()

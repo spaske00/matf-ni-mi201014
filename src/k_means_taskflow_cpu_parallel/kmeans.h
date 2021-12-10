@@ -12,14 +12,18 @@
 
 #include "ni_common.h"
 
+#include "taskflow/taskflow.hpp"
+
+
+
 namespace ni {
-    namespace cpu_sequential {
+    namespace taskflow_cpu_parallel {
         using namespace ni::types;
 
         struct KMeansParams {
             u32 num_of_clusters = 7;
             u32 num_of_iterations = 300;
-            u32 num_of_threads = 1;
+            u32 num_of_threads = std::thread::hardware_concurrency();
             static KMeansParams get_default() {
                 KMeansParams result;
                 return result;
@@ -74,6 +78,14 @@ namespace ni {
             m_output_closets_centroid_indices.resize(N);
             m_output_centroid_coords = Points<T>(m_params.num_of_clusters, input_points.dim_of_points());
 
+            // helper arrays
+            Points<T> sum_of_all_points_in_cluster(m_params.num_of_clusters, input_points.dim_of_points(), T{});
+            std::vector<u64> num_of_points_in_cluster(m_params.num_of_clusters, 0);
+
+            tf::Taskflow taskflow;
+            tf::Executor executor(m_params.num_of_threads);
+
+            auto init = taskflow.emplace([&]
             {
                 std::vector<u64> indices;
                 indices.reserve(K);
@@ -88,34 +100,32 @@ namespace ni {
                 for (u64 k = 0; k < K; ++k) {
                     m_output_centroid_coords[k].copy_assign(input_points[indices[k]]);
                 }
-            }
+            }).name("init");
 
-            // helper arrays
-            Points<T> sum_of_all_points_in_cluster(m_params.num_of_clusters, input_points.dim_of_points(), T{});
-            Points<T> helper_centroid_coords(m_params.num_of_clusters, input_points.dim_of_points(), T{});
 
-            std::vector<u64> num_of_points_in_cluster(m_params.num_of_clusters, 0);
-
-            for (u64 iteration = 0; iteration < M; ++iteration) {
+            auto clean_up = taskflow.emplace([&] {
                 sum_of_all_points_in_cluster.fill(T{});
                 std::fill(range(num_of_points_in_cluster), 0);
-
-                // update cluster
-                for (u64 i = 0; i < N; ++i) {
-                    const vec_ref<T> ith_point = input_points[i];
-                    T distance_from_closest_centroid = std::numeric_limits<T>::max();
-                    u64 index_of_closest_centroid = 0;
-                    for (u64 k = 0; k < K; ++k) {
-                        assert(k < m_output_centroid_coords.num_of_points());
-                        const T distance_from_kth_centroid = L2(ith_point, m_output_centroid_coords[k]);
-                        if (distance_from_kth_centroid < distance_from_closest_centroid) {
-                            distance_from_closest_centroid = distance_from_kth_centroid;
-                            index_of_closest_centroid = k;
-                        }
+            }).name("clean_up");
+            const u64 from = 0;
+            const u64 to = N;
+            const u64 by = 1;
+            auto compute_centroids = taskflow.for_each_index(from, to, by, [&](u64 i) {
+                const vec_ref<T> ith_point = input_points[i];
+                T distance_from_closest_centroid = std::numeric_limits<T>::max();
+                u64 index_of_closest_centroid = 0;
+                for (u64 k = 0; k < K; ++k) {
+                    assert(k < m_output_centroid_coords.num_of_points());
+                    const T distance_from_kth_centroid = L2(ith_point, m_output_centroid_coords[k]);
+                    if (distance_from_kth_centroid < distance_from_closest_centroid) {
+                        distance_from_closest_centroid = distance_from_kth_centroid;
+                        index_of_closest_centroid = k;
                     }
-                    m_output_closets_centroid_indices[i] = index_of_closest_centroid;
                 }
+                m_output_closets_centroid_indices[i] = index_of_closest_centroid;
+            }).name("compute_centroids");
 
+            auto update_clusters = taskflow.emplace([&]{
                 for (u64 i = 0; i < N; ++i) {
                     const auto cluster_index = m_output_closets_centroid_indices[i];
                     sum_of_all_points_in_cluster[cluster_index] += input_points[i];
@@ -127,8 +137,17 @@ namespace ni {
                     m_output_centroid_coords[k].copy_assign(sum_of_all_points_in_cluster[k]);
                     m_output_centroid_coords[k] /= count;
                 }
-            }
-            m_fitted = true;
+            }).name("update_clusters");
+            auto iterate_while = taskflow.emplace([m=0ull, M]() mutable {
+                return (m++ < M) ? 0 : 1;
+            }).name("iterate_while");
+
+            init.precede(clean_up);
+            clean_up.precede(compute_centroids);
+            compute_centroids.precede(update_clusters);
+            iterate_while.precede(clean_up).succeed(update_clusters);
+            executor.run(taskflow);
+            executor.wait_for_all();
         }
 
         template<typename T>
@@ -154,3 +173,17 @@ namespace ni {
 }
 
 #endif //UNTITLED3_KMEANS_H
+// stage N of programming development wrt architecture
+// -Individual element thinking
+// -Constructors/Destructors RAII
+// -Thousands/Millions of malloc/free new/delete for individual objects
+// -smart pointers
+// -lifetime constant concern and mental overhead
+
+// stage N + 1 of programming development wrt architecture
+// -Group/System level thinking
+// -ZII
+// -Very few allocations. Grouped together. Heavy use of arenas and scratch space
+// -No need for smart pointers
+// -lifetime is trivial and obvious in 99% of the cases
+// -Heavy use of Caches, Hashing and Result reuse
